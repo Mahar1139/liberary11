@@ -1,0 +1,95 @@
+Build a full-stack School Library Management System with the following specs:
+--- PROJECT OVERVIEW ---
+A multi-school library management platform with two admin roles:
+1. Super Admin (me) — manages all schools on the platform
+2. Librarian Head — manages only their assigned school's library
+--- TECH STACK ---
+- Frontend: Next.js 14 (App Router) + TypeScript
+- UI: Tailwind CSS + shadcn/ui components
+- Backend/DB: Supabase (PostgreSQL + Auth + Storage)
+- Hosting: Vercel
+--- DATABASE SCHEMA ---
+Create the following Supabase tables:
+1. schools
+   - id (uuid, primary key)
+   - name (text)
+   - address (text)
+   - contact_email (text)
+   - created_at (timestamp)
+2. profiles (extends Supabase auth.users)
+   - id (uuid, references auth.users)
+   - role (enum: 'super_admin', 'librarian_head')
+   - school_id (uuid, nullable, references schools) 
+   - full_name (text)
+   - phone (text)
+3. books
+   - id (uuid)
+   - school_id (uuid, references schools)
+   - title (text)
+   - author (text)
+   - isbn (text)
+   - category (text)
+   - total_copies (integer)
+   - available_copies (integer)
+   - cover_image_url (text, nullable)
+   - created_at (timestamp)
+4. students
+   - id (uuid)
+   - school_id (uuid, references schools)
+   - name (text)
+   - roll_number (text)
+   - class (text)
+   - section (text)
+   - contact_phone (text)
+5. issue_records
+   - id (uuid)
+   - school_id (uuid, references schools)
+   - book_id (uuid, references books)
+   - student_id (uuid, references students)
+   - issued_by (uuid, references profiles)
+   - issue_date (date)
+   - due_date (date)
+   - return_date (date, nullable)
+   - fine_amount (decimal, default 0)
+   - status (enum: 'issued', 'returned', 'overdue')
+--- ROW LEVEL SECURITY (IMPORTANT) ---
+- super_admin can read/write ALL tables
+- librarian_head can only read/write rows where school_id = their assigned school
+- Enable RLS on all tables and write these policies in Supabase
+--- FEATURES TO BUILD ---
+SUPER ADMIN PANEL:
+- Dashboard: total schools, total books across all schools, active issues, overdue books
+- Schools management: add, edit, delete schools
+- Librarian accounts: create accounts for librarian heads, assign them to a school
+- Global reports: compare stats across schools (books issued per school, overdue rates)
+- View all activity logs
+LIBRARIAN HEAD PANEL:
+- Dashboard: their school's stats — books available, issued today, overdue count, fines collected
+- Book Catalog: add/edit/delete books, upload cover image, search by title/author/ISBN
+- Issue Book: select student + book, set due date, auto-reduce available_copies
+- Return Book: mark returned, auto-calculate fine if overdue (₹2/day default), restore available_copies
+- Students: add/edit/delete student records, view borrow history per student
+- Reports: books issued this month, overdue list, fine collection report (exportable to PDF/CSV)
+- Notifications: show overdue alerts on dashboard
+--- AUTH & ROUTING ---
+- Login page (shared, role-based redirect after login)
+- /super-admin/* routes — protected, only super_admin role
+- /librarian/* routes — protected, only librarian_head role
+- Middleware to enforce route protection based on Supabase session + role
+--- UI REQUIREMENTS ---
+- Responsive design (works on tablet and desktop)
+- Sidebar navigation for both panels
+- Data tables with search, filter, and pagination
+- Modal forms for adding/editing records
+- Toast notifications for success/error actions
+- Dark/light mode toggle
+--- FINE CALCULATION LOGIC ---
+fine_amount = (today's date - due_date) * 2  // ₹2 per day
+Only calculate if return_date is null and due_date < today
+--- ADDITIONAL NOTES ---
+- Use Supabase Auth for login (email + password)
+- Use Supabase Storage for book cover images
+- All monetary values in Indian Rupees (₹)
+- Dates in DD/MM/YYYY format
+- Create seed data: 2 sample schools, 1 librarian per school, 10 books per school
+ye banana h try krna ki backend python m hi hoo m v kr lunaga
