@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customFetch } from "@workspace/api-client-react";
 import { toast } from "sonner";
-import { Lock, Unlock, CheckCircle2, XCircle, IndianRupee, Clock, School } from "lucide-react";
+import { Lock, Unlock, CheckCircle2, XCircle, IndianRupee, Clock, School, Banknote, Smartphone } from "lucide-react";
 
 type SchoolSub = {
   id: string; name: string; contactEmail: string;
@@ -25,6 +25,12 @@ type Payment = {
   amount: number; paymentReference: string; notes: string;
   month: string; year: string; status: string;
   submittedAt: string; reviewedAt?: string | null;
+};
+
+type FineCollection = {
+  id: string; schoolId: string; schoolName: string;
+  bookTitle: string; studentName: string; studentClass: string; studentSection: string;
+  fineAmount: number; finePaymentMethod: string; returnDate: string; createdAt: string;
 };
 
 function monthLabel(m: string) {
@@ -149,6 +155,11 @@ export default function SubscriptionsPage() {
     queryFn: () => customFetch("/api/subscriptions/all") as Promise<Payment[]>,
   });
 
+  const { data: fineCollections, isLoading: finesLoading } = useQuery<FineCollection[]>({
+    queryKey: ["fine-collections"],
+    queryFn: () => customFetch("/api/issues/fine-collections") as Promise<FineCollection[]>,
+  });
+
   const freeze = useMutation({
     mutationFn: (id: string) => customFetch(`/api/schools/${id}/freeze`, { method: "POST" }),
     onSuccess: () => { toast.success("Account frozen"); qc.invalidateQueries({ queryKey: ["subscriptions"] }); },
@@ -233,6 +244,7 @@ export default function SubscriptionsPage() {
               )}
             </TabsTrigger>
             <TabsTrigger value="history">Payment History</TabsTrigger>
+            <TabsTrigger value="fines">Fine Collections</TabsTrigger>
           </TabsList>
 
           <TabsContent value="schools" className="mt-4">
@@ -440,6 +452,82 @@ export default function SubscriptionsPage() {
                         ))}
                       {((allPayments ?? []).filter(p => (filterMonth === "all" || p.month === filterMonth) && (filterYear === "all" || p.year === filterYear))).length === 0 && (
                         <tr><td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">No payment history</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="fines" className="mt-4 space-y-3">
+            {/* Summary cards */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-amber-500/10"><IndianRupee className="h-4 w-4 text-amber-600" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Collected</p>
+                    <p className="text-2xl font-bold text-amber-600">₹{(fineCollections ?? []).reduce((s, r) => s + r.fineAmount, 0).toFixed(0)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-green-500/10"><Banknote className="h-4 w-4 text-green-600" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Cash</p>
+                    <p className="text-2xl font-bold text-green-600">₹{(fineCollections ?? []).filter(r => r.finePaymentMethod === "cash").reduce((s, r) => s + r.fineAmount, 0).toFixed(0)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-blue-500/10"><Smartphone className="h-4 w-4 text-blue-600" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">UPI</p>
+                    <p className="text-2xl font-bold text-blue-600">₹{(fineCollections ?? []).filter(r => r.finePaymentMethod === "upi").reduce((s, r) => s + r.fineAmount, 0).toFixed(0)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <Card>
+              <CardContent className="p-0">
+                {finesLoading ? (
+                  <div className="p-6 space-y-3">{Array.from({length:5}).map((_,i)=><Skeleton key={i} className="h-10 w-full"/>)}</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="text-left px-5 py-3 font-medium">School</th>
+                        <th className="text-left px-5 py-3 font-medium">Student</th>
+                        <th className="text-left px-5 py-3 font-medium">Book</th>
+                        <th className="text-left px-5 py-3 font-medium">Return Date</th>
+                        <th className="text-center px-5 py-3 font-medium">Method</th>
+                        <th className="text-right px-5 py-3 font-medium">Fine</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(fineCollections ?? []).map(r => (
+                        <tr key={r.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
+                          <td className="px-5 py-3 font-medium">{r.schoolName}</td>
+                          <td className="px-5 py-3">
+                            <span>{r.studentName}</span>
+                            <span className="text-xs text-muted-foreground ml-1">{r.studentClass}-{r.studentSection}</span>
+                          </td>
+                          <td className="px-5 py-3 text-muted-foreground max-w-[180px] truncate">{r.bookTitle}</td>
+                          <td className="px-5 py-3 text-muted-foreground">{formatDate(r.returnDate)}</td>
+                          <td className="px-5 py-3 text-center">
+                            {r.finePaymentMethod === "upi"
+                              ? <Badge variant="outline" className="text-blue-600 border-blue-400 gap-1"><Smartphone className="h-3 w-3"/>UPI</Badge>
+                              : <Badge variant="outline" className="text-green-600 border-green-500 gap-1"><Banknote className="h-3 w-3"/>Cash</Badge>
+                            }
+                          </td>
+                          <td className="px-5 py-3 text-right font-semibold text-amber-600">₹{r.fineAmount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {(fineCollections ?? []).length === 0 && (
+                        <tr><td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">No fines collected yet</td></tr>
                       )}
                     </tbody>
                   </table>

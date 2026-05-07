@@ -19,6 +19,7 @@ export const issueRecordsTable = pgTable("issue_records", {
   returnDate: text("return_date"),
   fineAmount: decimal("fine_amount", { precision: 10, scale: 2 }).notNull().default("0"),
   finePaid: boolean("fine_paid").notNull().default(false),
+  finePaymentMethod: text("fine_payment_method"),
   status: issueStatusEnum("status").notNull().default("issued"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

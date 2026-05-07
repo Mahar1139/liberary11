@@ -21,6 +21,7 @@ async function issueToJson(record: typeof issueRecordsTable.$inferSelect) {
     returnDate: record.returnDate ?? null,
     fineAmount: parseFloat(record.fineAmount),
     finePaid: record.finePaid,
+    finePaymentMethod: record.finePaymentMethod ?? null,
     status: record.status,
     bookTitle: book?.title ?? "",
     bookAuthor: book?.author ?? "",
@@ -213,6 +214,84 @@ router.post("/issues/:id/renew", requireLibrarian, async (req: AuthRequest, res)
     .returning();
 
   res.json(await issueToJson(updated));
+});
+
+// Collect fine + return book in one step
+router.post("/issues/:id/collect-fine-and-return", requireLibrarian, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const parsed = z.object({
+    fineAmount: z.coerce.number().min(0),
+    paymentMethod: z.enum(["cash", "upi"]),
+  }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const [record] = await db.select().from(issueRecordsTable).where(eq(issueRecordsTable.id, id)).limit(1);
+  if (!record) { res.status(404).json({ error: "Issue record not found" }); return; }
+  if (record.status === "returned") { res.status(400).json({ error: "Book already returned" }); return; }
+
+  const today = new Date().toISOString().split("T")[0];
+  const [updated] = await db.update(issueRecordsTable)
+    .set({
+      returnDate: today,
+      status: "returned",
+      fineAmount: parsed.data.fineAmount.toString(),
+      finePaid: true,
+      finePaymentMethod: parsed.data.paymentMethod,
+    })
+    .where(eq(issueRecordsTable.id, id))
+    .returning();
+
+  const [book] = await db.select().from(booksTable).where(eq(booksTable.id, record.bookId)).limit(1);
+  if (book) {
+    await db.update(booksTable)
+      .set({ availableCopies: book.availableCopies + 1 })
+      .where(eq(booksTable.id, record.bookId));
+  }
+  res.json(await issueToJson(updated));
+});
+
+// Admin: get all fine collections across all schools
+router.get("/issues/fine-collections", requireAuth, async (req: AuthRequest, res) => {
+  const profile = req.profile;
+  const conditions = [
+    eq(issueRecordsTable.finePaid, true),
+  ];
+  // Librarians only see their own school
+  if (profile?.role === "librarian_head" && profile.schoolId) {
+    conditions.push(eq(issueRecordsTable.schoolId, profile.schoolId));
+  }
+
+  const records = await db
+    .select({
+      issue: issueRecordsTable,
+      bookTitle: booksTable.title,
+      studentName: studentsTable.name,
+      studentClass: studentsTable.class,
+      studentSection: studentsTable.section,
+      schoolName: schoolsTable.name,
+    })
+    .from(issueRecordsTable)
+    .leftJoin(booksTable, eq(issueRecordsTable.bookId, booksTable.id))
+    .leftJoin(studentsTable, eq(issueRecordsTable.studentId, studentsTable.id))
+    .leftJoin(schoolsTable, eq(issueRecordsTable.schoolId, schoolsTable.id))
+    .where(and(...conditions))
+    .orderBy(desc(issueRecordsTable.createdAt));
+
+  res.json(records.map(r => ({
+    id: r.issue.id,
+    schoolId: r.issue.schoolId,
+    schoolName: r.schoolName ?? "",
+    bookTitle: r.bookTitle ?? "",
+    studentName: r.studentName ?? "",
+    studentClass: r.studentClass ?? "",
+    studentSection: r.studentSection ?? "",
+    fineAmount: parseFloat(r.issue.fineAmount),
+    finePaymentMethod: r.issue.finePaymentMethod ?? "cash",
+    returnDate: r.issue.returnDate ?? "",
+    createdAt: r.issue.createdAt.toISOString(),
+  })));
 });
 
 // Set manual fine for an issued/overdue book
