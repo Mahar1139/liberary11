@@ -215,6 +215,30 @@ router.post("/issues/:id/renew", requireLibrarian, async (req: AuthRequest, res)
   res.json(await issueToJson(updated));
 });
 
+// Set manual fine for an issued/overdue book
+router.post("/issues/:id/set-fine", requireLibrarian, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const parsed = z.object({ fineAmount: z.coerce.number().min(0) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid fine amount" });
+    return;
+  }
+  const [record] = await db.select().from(issueRecordsTable).where(eq(issueRecordsTable.id, id)).limit(1);
+  if (!record) {
+    res.status(404).json({ error: "Issue record not found" });
+    return;
+  }
+  if (record.status === "returned") {
+    res.status(400).json({ error: "Cannot set fine on a returned book — use mark-fine-paid instead" });
+    return;
+  }
+  const [updated] = await db.update(issueRecordsTable)
+    .set({ fineAmount: parsed.data.fineAmount.toString(), finePaid: false })
+    .where(eq(issueRecordsTable.id, id))
+    .returning();
+  res.json(await issueToJson(updated));
+});
+
 // #8 - Mark fine as paid
 router.post("/issues/:id/mark-fine-paid", requireLibrarian, async (req: AuthRequest, res) => {
   const { id } = req.params;

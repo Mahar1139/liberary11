@@ -1,6 +1,6 @@
 import { useState } from "react";
 import LibrarianLayout from "@/components/layout/librarian-layout";
-import { useListIssues, useReturnBook, useGetMyProfile, getListIssuesQueryKey, getListBooksQueryKey, getGetLibrarianDashboardQueryKey, ListIssuesStatus, customFetch } from "@workspace/api-client-react";
+import { useListIssues, useReturnBook, useGetMyProfile, useGetSchool, getListIssuesQueryKey, getListBooksQueryKey, getGetLibrarianDashboardQueryKey, ListIssuesStatus, customFetch } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,12 +18,12 @@ function formatDate(dateStr: string) {
   return `${d}/${m}/${y}`;
 }
 
-function calcFine(dueDate: string): number {
+function calcOverdueDays(dueDate: string): number {
   const today = new Date();
   const due = new Date(dueDate);
   if (today <= due) return 0;
   const diffMs = today.getTime() - due.getTime();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24)) * 2;
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
 type IssueRecord = {
@@ -35,13 +35,14 @@ type IssueRecord = {
   studentPhone?: string;
 };
 
-function ReturnDialog({ record, onClose }: { record: IssueRecord; onClose: () => void }) {
+function ReturnDialog({ record, fineRatePerDay, onClose }: { record: IssueRecord; fineRatePerDay: number; onClose: () => void }) {
   const qc = useQueryClient();
   const returnBook = useReturnBook();
   const { data: profile } = useGetMyProfile();
   const schoolId = profile?.schoolId ?? "";
-  const fine = calcFine(record.dueDate);
-  const isOverdue = fine > 0;
+  const overdueDays = calcOverdueDays(record.dueDate);
+  const isOverdue = overdueDays > 0;
+  const estimatedFine = overdueDays * fineRatePerDay;
 
   const handleReturn = () => {
     returnBook.mutate({ id: record.id }, {
@@ -88,7 +89,9 @@ function ReturnDialog({ record, onClose }: { record: IssueRecord; onClose: () =>
               <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
               <div>
                 <p className="text-sm font-semibold text-destructive">Overdue Fine</p>
-                <p className="text-sm text-muted-foreground mt-0.5">₹{fine.toFixed(2)} (₹2/day × {Math.ceil(fine / 2)} days)</p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  ₹{estimatedFine.toFixed(2)} (₹{fineRatePerDay}/day × {overdueDays} days)
+                </p>
               </div>
             </div>
           )}
@@ -185,6 +188,101 @@ function RenewDialog({ record, onClose }: { record: IssueRecord; onClose: () => 
   );
 }
 
+function SetFineDialog({ record, fineRatePerDay, onClose }: { record: IssueRecord; fineRatePerDay: number; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: profile } = useGetMyProfile();
+  const schoolId = profile?.schoolId ?? "";
+  const overdueDays = calcOverdueDays(record.dueDate);
+  const suggested = overdueDays > 0 ? (overdueDays * fineRatePerDay).toFixed(2) : "0";
+  const [fineAmount, setFineAmount] = useState(suggested);
+  const [loading, setLoading] = useState(false);
+
+  const handleSetFine = async () => {
+    setLoading(true);
+    try {
+      await customFetch(`/api/issues/${record.id}/set-fine`, {
+        method: "POST",
+        body: JSON.stringify({ fineAmount: parseFloat(fineAmount) }),
+        headers: { "Content-Type": "application/json" },
+      });
+      toast.success(`Fine of ₹${parseFloat(fineAmount).toFixed(2)} set for ${record.studentName}`);
+      qc.invalidateQueries({ queryKey: getListIssuesQueryKey({ schoolId, status: "issued" }) });
+      qc.invalidateQueries({ queryKey: getListIssuesQueryKey({ schoolId, status: "overdue" }) });
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to set fine");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add / Set Fine</DialogTitle>
+          <DialogDescription>Set the overdue fine amount for this book</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-md bg-muted p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Student</span>
+              <span className="font-medium">{record.studentName} ({record.studentClass}-{record.studentSection})</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Book</span>
+              <span className="font-medium text-right max-w-[55%]">{record.bookTitle}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Due Date</span>
+              <span className="text-destructive font-medium">{formatDate(record.dueDate)}</span>
+            </div>
+            {overdueDays > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Overdue Days</span>
+                <span className="text-destructive font-medium">{overdueDays} days</span>
+              </div>
+            )}
+          </div>
+
+          {overdueDays > 0 && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm text-amber-700 dark:text-amber-400">
+              Suggested: ₹{fineRatePerDay}/day × {overdueDays} days = <strong>₹{suggested}</strong>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Fine Amount (₹)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+              <Input
+                type="number"
+                min={0}
+                step={0.5}
+                className="pl-7"
+                value={fineAmount}
+                onChange={e => setFineAmount(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">You can override the suggested amount if needed</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={handleSetFine}
+            disabled={loading || fineAmount === "" || isNaN(parseFloat(fineAmount))}
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            <IndianRupee className="h-4 w-4 mr-2" />
+            {loading ? "Saving..." : "Set Fine"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarkFinePaidDialog({ record, onClose }: { record: IssueRecord; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: profile } = useGetMyProfile();
@@ -254,12 +352,16 @@ function MarkFinePaidDialog({ record, onClose }: { record: IssueRecord; onClose:
 export default function ReturnsPage() {
   const { data: profile } = useGetMyProfile();
   const schoolId = profile?.schoolId ?? "";
+  const { data: school } = useGetSchool({ id: schoolId }, { enabled: !!schoolId });
+  const fineRatePerDay = parseFloat((school as any)?.fineRatePerDay ?? "2");
+
   const [status, setStatus] = useState<ListIssuesStatus>(ListIssuesStatus.issued);
   const [search, setSearch] = useState("");
   const { data: issues, isLoading } = useListIssues({ schoolId, status });
   const [returning, setReturning] = useState<IssueRecord | null>(null);
   const [renewing, setRenewing] = useState<IssueRecord | null>(null);
   const [markingPaid, setMarkingPaid] = useState<IssueRecord | null>(null);
+  const [settingFine, setSettingFine] = useState<IssueRecord | null>(null);
 
   const filtered = (issues ?? []).filter(r =>
     (r as any).studentName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -269,7 +371,7 @@ export default function ReturnsPage() {
 
   const showReturnAction = status !== "returned";
   const showRenewAction = status === "issued" || status === "overdue";
-  const colSpan = showReturnAction ? (showRenewAction ? 8 : 7) : 6;
+  const showFineAction = status === "issued" || status === "overdue";
 
   return (
     <LibrarianLayout>
@@ -314,7 +416,7 @@ export default function ReturnsPage() {
                     <th className="text-left px-5 py-3 font-medium">Status</th>
                     <th className="text-right px-5 py-3 font-medium">Fine (₹)</th>
                     {status === "returned" && <th className="text-center px-5 py-3 font-medium">Fine Paid</th>}
-                    {showReturnAction && <th className="text-right px-5 py-3 font-medium">Actions</th>}
+                    <th className="text-right px-5 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -337,7 +439,9 @@ export default function ReturnsPage() {
                         {record.status === "returned" && <Badge variant="outline">Returned</Badge>}
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {record.fineAmount > 0 ? <span className="text-destructive font-medium">₹{record.fineAmount.toFixed(2)}</span> : <span className="text-muted-foreground">—</span>}
+                        {record.fineAmount > 0
+                          ? <span className="text-destructive font-medium">₹{record.fineAmount.toFixed(2)}</span>
+                          : <span className="text-muted-foreground">—</span>}
                       </td>
                       {status === "returned" && (
                         <td className="px-5 py-3 text-center">
@@ -350,24 +454,35 @@ export default function ReturnsPage() {
                           ) : <span className="text-muted-foreground text-xs">No fine</span>}
                         </td>
                       )}
-                      {showReturnAction && (
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {showRenewAction && (
-                              <Button size="sm" variant="outline" onClick={() => setRenewing(record)} data-testid={`button-renew-${record.id}`}>
-                                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Renew
-                              </Button>
-                            )}
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {showFineAction && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-amber-600 border-amber-500 hover:bg-amber-50 h-8"
+                              onClick={() => setSettingFine(record)}
+                              data-testid={`button-set-fine-${record.id}`}
+                            >
+                              <IndianRupee className="h-3.5 w-3.5 mr-1" /> Fine
+                            </Button>
+                          )}
+                          {showRenewAction && (
+                            <Button size="sm" variant="outline" onClick={() => setRenewing(record)} data-testid={`button-renew-${record.id}`}>
+                              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Renew
+                            </Button>
+                          )}
+                          {showReturnAction && (
                             <Button size="sm" onClick={() => setReturning(record)} data-testid={`button-return-${record.id}`}>
                               <BookCheck className="h-3.5 w-3.5 mr-1" /> Return
                             </Button>
-                          </div>
-                        </td>
-                      )}
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={colSpan} className="px-5 py-10 text-center text-muted-foreground">No records found</td></tr>
+                    <tr><td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">No records found</td></tr>
                   )}
                 </tbody>
               </table>
@@ -376,9 +491,10 @@ export default function ReturnsPage() {
         </Card>
       </div>
 
-      {returning && <ReturnDialog record={returning} onClose={() => setReturning(null)} />}
+      {returning && <ReturnDialog record={returning} fineRatePerDay={fineRatePerDay} onClose={() => setReturning(null)} />}
       {renewing && <RenewDialog record={renewing} onClose={() => setRenewing(null)} />}
       {markingPaid && <MarkFinePaidDialog record={markingPaid} onClose={() => setMarkingPaid(null)} />}
+      {settingFine && <SetFineDialog record={settingFine} fineRatePerDay={fineRatePerDay} onClose={() => setSettingFine(null)} />}
     </LibrarianLayout>
   );
 }
