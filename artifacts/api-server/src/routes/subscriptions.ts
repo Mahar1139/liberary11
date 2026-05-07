@@ -32,6 +32,7 @@ router.get("/subscriptions", requireSuperAdmin, async (req: AuthRequest, res) =>
       contactEmail: school.contactEmail,
       status: school.status,
       monthlyFee: parseFloat(school.monthlyFee),
+      fineRatePerDay: parseFloat(school.fineRatePerDay),
       lastPayment: payments[0] ? {
         id: payments[0].id,
         amount: parseFloat(payments[0].amount),

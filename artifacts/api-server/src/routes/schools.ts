@@ -78,6 +78,24 @@ router.put("/schools/:id", requireSuperAdmin, async (req: AuthRequest, res) => {
   res.json(schoolToJson(school));
 });
 
+router.patch("/schools/:id/fine-rate", requireSuperAdmin, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const parsed = z.object({ fineRatePerDay: z.coerce.number().min(0) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const [school] = await db.update(schoolsTable)
+    .set({ fineRatePerDay: parsed.data.fineRatePerDay.toString() })
+    .where(eq(schoolsTable.id, id))
+    .returning();
+  if (!school) {
+    res.status(404).json({ error: "School not found" });
+    return;
+  }
+  res.json(schoolToJson(school));
+});
+
 router.delete("/schools/:id", requireSuperAdmin, async (req: AuthRequest, res) => {
   const { id } = req.params;
   await db.delete(schoolsTable).where(eq(schoolsTable.id, id));

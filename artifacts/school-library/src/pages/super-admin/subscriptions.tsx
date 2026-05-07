@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ import { Lock, Unlock, CheckCircle2, XCircle, IndianRupee, Clock, School } from 
 type SchoolSub = {
   id: string; name: string; contactEmail: string;
   status: "active" | "frozen";
-  monthlyFee: number; pendingPayments: number;
+  monthlyFee: number; fineRatePerDay: number; pendingPayments: number;
   lastPayment: { id: string; amount: number; month: string; year: string; status: string; submittedAt: string } | null;
 };
 
@@ -77,9 +78,61 @@ function FeeDialog({ school, onClose }: { school: SchoolSub; onClose: () => void
   );
 }
 
+function FineRateDialog({ school, onClose }: { school: SchoolSub; onClose: () => void }) {
+  const [rate, setRate] = useState((school.fineRatePerDay ?? 2).toString());
+  const qc = useQueryClient();
+  const mut = useMutation({
+    mutationFn: () => customFetch(`/api/schools/${school.id}/fine-rate`, {
+      method: "PATCH",
+      body: JSON.stringify({ fineRatePerDay: parseFloat(rate) }),
+      headers: { "Content-Type": "application/json" },
+    }),
+    onSuccess: () => {
+      toast.success("Fine rate updated");
+      qc.invalidateQueries({ queryKey: ["subscriptions"] });
+      onClose();
+    },
+    onError: () => toast.error("Failed to update fine rate"),
+  });
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Set Overdue Fine Rate</DialogTitle>
+          <DialogDescription>{school.name}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+            <Input type="number" min={0} step={0.5} className="pl-7" value={rate} onChange={e => setRate(e.target.value)} />
+          </div>
+          <p className="text-xs text-muted-foreground">Fine charged per overdue day on unreturned books. Set to 0 for no fine.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => mut.mutate()} disabled={mut.isPending}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const allMonths = [
+  { value: "1", label: "January" }, { value: "2", label: "February" },
+  { value: "3", label: "March" }, { value: "4", label: "April" },
+  { value: "5", label: "May" }, { value: "6", label: "June" },
+  { value: "7", label: "July" }, { value: "8", label: "August" },
+  { value: "9", label: "September" }, { value: "10", label: "October" },
+  { value: "11", label: "November" }, { value: "12", label: "December" },
+];
+
 export default function SubscriptionsPage() {
   const qc = useQueryClient();
   const [settingFee, setSettingFee] = useState<SchoolSub | null>(null);
+  const [settingFineRate, setSettingFineRate] = useState<SchoolSub | null>(null);
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterYear, setFilterYear] = useState<string>("all");
 
   const { data: schools, isLoading: schoolsLoading } = useQuery<SchoolSub[]>({
     queryKey: ["subscriptions"],
@@ -194,6 +247,7 @@ export default function SubscriptionsPage() {
                         <th className="text-left px-5 py-3 font-medium">School</th>
                         <th className="text-left px-5 py-3 font-medium">Status</th>
                         <th className="text-right px-5 py-3 font-medium">Monthly Fee</th>
+                        <th className="text-right px-5 py-3 font-medium">Fine / Day</th>
                         <th className="text-left px-5 py-3 font-medium">Last Payment</th>
                         <th className="text-right px-5 py-3 font-medium">Actions</th>
                       </tr>
@@ -214,6 +268,11 @@ export default function SubscriptionsPage() {
                           <td className="px-5 py-3 text-right">
                             <button onClick={() => setSettingFee(school)} className="text-primary hover:underline font-medium">
                               ₹{school.monthlyFee.toFixed(0)}/mo
+                            </button>
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            <button onClick={() => setSettingFineRate(school)} className="text-orange-600 hover:underline font-medium">
+                              ₹{(school.fineRatePerDay ?? 0).toFixed(1)}/day
                             </button>
                           </td>
                           <td className="px-5 py-3">
@@ -251,7 +310,7 @@ export default function SubscriptionsPage() {
                         </tr>
                       ))}
                       {(schools ?? []).length === 0 && (
-                        <tr><td colSpan={5} className="px-5 py-10 text-center text-muted-foreground">No schools found</td></tr>
+                        <tr><td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">No schools found</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -317,7 +376,35 @@ export default function SubscriptionsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="history" className="mt-4">
+          <TabsContent value="history" className="mt-4 space-y-3">
+            {/* Filters */}
+            <div className="flex items-center gap-3">
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {allMonths.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={filterYear} onValueChange={setFilterYear}>
+                <SelectTrigger className="w-32">
+                  <SelectValue placeholder="All Years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  {Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i)).map(y => (
+                    <SelectItem key={y} value={y}>{y}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(filterMonth !== "all" || filterYear !== "all") && (
+                <Button variant="ghost" size="sm" onClick={() => { setFilterMonth("all"); setFilterYear("all"); }}>
+                  Clear
+                </Button>
+              )}
+            </div>
             <Card>
               <CardContent className="p-0">
                 {allLoading ? (
@@ -335,21 +422,23 @@ export default function SubscriptionsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(allPayments ?? []).map(p => (
-                        <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
-                          <td className="px-5 py-3 font-medium">{p.schoolName}</td>
-                          <td className="px-5 py-3">{monthLabel(p.month)} {p.year}</td>
-                          <td className="px-5 py-3 text-right">₹{p.amount.toFixed(0)}</td>
-                          <td className="px-5 py-3 font-mono text-xs">{p.paymentReference}</td>
-                          <td className="px-5 py-3">
-                            {p.status === "approved" && <Badge variant="outline" className="text-green-600 border-green-500">Approved</Badge>}
-                            {p.status === "pending" && <Badge variant="outline" className="text-amber-600 border-amber-500">Pending</Badge>}
-                            {p.status === "rejected" && <Badge variant="destructive">Rejected</Badge>}
-                          </td>
-                          <td className="px-5 py-3 text-muted-foreground">{formatDate(p.submittedAt)}</td>
-                        </tr>
-                      ))}
-                      {(allPayments ?? []).length === 0 && (
+                      {(allPayments ?? [])
+                        .filter(p => (filterMonth === "all" || p.month === filterMonth) && (filterYear === "all" || p.year === filterYear))
+                        .map(p => (
+                          <tr key={p.id} className="border-b border-border/50 last:border-0 hover:bg-muted/30">
+                            <td className="px-5 py-3 font-medium">{p.schoolName}</td>
+                            <td className="px-5 py-3">{monthLabel(p.month)} {p.year}</td>
+                            <td className="px-5 py-3 text-right">₹{p.amount.toFixed(0)}</td>
+                            <td className="px-5 py-3 font-mono text-xs">{p.paymentReference}</td>
+                            <td className="px-5 py-3">
+                              {p.status === "approved" && <Badge variant="outline" className="text-green-600 border-green-500">Approved</Badge>}
+                              {p.status === "pending" && <Badge variant="outline" className="text-amber-600 border-amber-500">Pending</Badge>}
+                              {p.status === "rejected" && <Badge variant="destructive">Rejected</Badge>}
+                            </td>
+                            <td className="px-5 py-3 text-muted-foreground">{formatDate(p.submittedAt)}</td>
+                          </tr>
+                        ))}
+                      {((allPayments ?? []).filter(p => (filterMonth === "all" || p.month === filterMonth) && (filterYear === "all" || p.year === filterYear))).length === 0 && (
                         <tr><td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">No payment history</td></tr>
                       )}
                     </tbody>
@@ -362,6 +451,7 @@ export default function SubscriptionsPage() {
       </div>
 
       {settingFee && <FeeDialog school={settingFee} onClose={() => setSettingFee(null)} />}
+      {settingFineRate && <FineRateDialog school={settingFineRate} onClose={() => setSettingFineRate(null)} />}
     </SuperAdminLayout>
   );
 }
