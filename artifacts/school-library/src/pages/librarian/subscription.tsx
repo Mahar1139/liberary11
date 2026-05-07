@@ -107,27 +107,26 @@ function SubmitPaymentDialog({ monthlyFee, onClose }: { monthlyFee: number; onCl
               </div>
             </div>
 
+            {/* Month & Year — read-only, auto-set to current */}
             <div className="grid grid-cols-2 gap-3">
-              <FormField control={form.control} name="month" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Month</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger></FormControl>
-                    <SelectContent>{months.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="year" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Year</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger></FormControl>
-                    <SelectContent>{yearOptions.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none">Month</label>
+                <Input
+                  className="bg-muted cursor-not-allowed text-muted-foreground"
+                  value={monthLabel(String(currentDate.getMonth() + 1))}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium leading-none">Year</label>
+                <Input
+                  className="bg-muted cursor-not-allowed text-muted-foreground"
+                  value={String(currentDate.getFullYear())}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </div>
             </div>
 
             {/* Amount — read-only, set by admin */}
