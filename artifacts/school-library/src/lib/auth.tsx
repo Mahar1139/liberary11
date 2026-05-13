@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 
+const API_BASE = import.meta.env.VITE_API_URL;
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -21,8 +23,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 async function fetchMe(): Promise<AuthUser | null> {
   try {
-    const res = await fetch("/api/auth/me", { credentials: "include" });
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      credentials: "include",
+    });
+
     if (!res.ok) return null;
+
     return res.json();
   } catch {
     return null;
@@ -46,22 +52,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await fetch("/api/auth/login", {
+    const res = await fetch(`${API_BASE}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ email, password }),
     });
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || "Login failed");
     }
+
     const data = await res.json();
     setUser(data);
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+
     setUser(null);
   };
 
@@ -74,6 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+
+  if (!ctx) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+
   return ctx;
 }
